@@ -1,0 +1,11 @@
+# Executables.
+/PunyPrince
+/PunyPrince.exe
+
+# Created by IDE's.
+/PunyPrince.dev
+/PunyPrince.ico
+/PunyPrince.layout
+/PunyPrince.o
+/*private*
+/Makefile.win
