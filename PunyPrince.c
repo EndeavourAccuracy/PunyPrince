@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Puny Prince v0.9 (January 2023)
+/* Puny Prince v1.0 (May 2023)
  * Copyright (C) 2023 Norbert de Jonge <nlmdejonge@gmail.com>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -46,7 +46,7 @@
 #define EXIT_NORMAL 0
 #define EXIT_ERROR 1
 #define PROG_NAME "Puny Prince"
-#define PROG_VERSION "v0.9 (January 2023)"
+#define PROG_VERSION "v1.0 (May 2023)"
 #define COPYRIGHT "Copyright (C) 2023 Norbert de Jonge"
 #define ROOMS 24
 #define TILES 30
@@ -171,8 +171,8 @@ int arGuardAttack[ROOMS + 2];
 int iFlash;
 int iFlashR, iFlashG, iFlashB;
 /***/
-int iSteps;
-int iShowSteps;
+int iSteps; /*** Coins are in iPrinceCoins. ***/
+int iShowStepsCoins;
 /***/
 int iCoinsInLevel;
 int iNoMessage;
@@ -303,11 +303,12 @@ void PlaySound (char *sFile);
 void DropLoose (int iRoom, int iTile);
 void GetOptionValue (char *sArgv, char *sValue);
 void Initialize (void);
-void ShowText (int iLine, char *sText, int iR, int iG, int iB);
+void ShowText (int iLine, char *sText, int iR, int iG, int iB, int iInGame);
 void MovingStarts (void);
 void MovingEnds (void);
 int GetX (int iTile);
 int GetY (int iTile);
+void Teleport (char cGoTo);
 
 /*****************************************************************************/
 int main (int argc, char *argv[])
@@ -714,6 +715,7 @@ void SavePuny (int iLevel)
 						case 1: cWrite = '.'; break; /*** pattern ***/
 						case 2: cWrite = '.'; break; /*** pattern ***/
 						case 3: cWrite = '`'; break; /*** window ***/
+						/*** 0x04, 0x05, 0x0C, 0x0D, 0x32, 0x33, 0x34, 0x35 ***/
 						case 255: cWrite = '.'; break; /*** no pattern ***/
 						default: iUnknown = 1; break;
 					}
@@ -730,6 +732,7 @@ void SavePuny (int iLevel)
 						case 6: cWrite = '9'; break; /*** fake empty ***/
 						case 13: cWrite = '8'; break; /*** fake wall ***/
 						case 14: cWrite = '9'; break; /*** fake empty ***/
+						/*** 0x32, 0x33, 0x34, 0x35 ***/
 						case 255: cWrite = '_'; break; /*** no pattern ***/
 						default: iUnknown = 1; break;
 					}
@@ -810,6 +813,7 @@ void SavePuny (int iLevel)
 						case 4: cWrite = '4'; break; /*** flip ***/
 						case 5: cWrite = '5'; break; /*** hurt ***/
 						case 6: cWrite = '6'; break; /*** special blue ***/
+						/*** 0x07, 0x08, 0x09, 0x0A, 0x0B ***/
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -865,6 +869,7 @@ void SavePuny (int iLevel)
 					switch (iVariant)
 					{
 						case 0: cWrite = '['; break;
+						/*** 0x20, 0x40, 0xFD, 0xFF ***/
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -894,6 +899,7 @@ void SavePuny (int iLevel)
 						case 3: cWrite = '_'; break;
 						case 4: cWrite = '_'; break;
 						case 5: cWrite = '_'; break;
+						/*** 0x80, 0x81, 0x82, 0x83, 0x84, 0x85 ***/
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -901,6 +907,7 @@ void SavePuny (int iLevel)
 					switch (iVariant)
 					{
 						case 0: cWrite = '\''; break;
+						/*** 0x01-0x3F ***/
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -909,6 +916,7 @@ void SavePuny (int iLevel)
 					{
 						case 0: cWrite = '#'; break;
 						case 1: cWrite = '#'; break;
+						/*** 0x04, 0x06, 0x0C, 0x0E ***/
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -926,17 +934,34 @@ void SavePuny (int iLevel)
 						default: iUnknown = 1; break;
 					}
 					break;
-				case 23: /*** balcony left ***/
+				case 23: /*** balcony/teleports left ***/
 					switch (iVariant)
 					{
 						case 0: cWrite = '_'; break;
+						case 1: cWrite = 'S'; break;
+						case 2: cWrite = 'T'; break;
+						case 3: cWrite = 'U'; break;
+						case 4: cWrite = 'V'; break;
+						case 5: cWrite = 'W'; break;
+						case 6: cWrite = 'X'; break;
+						case 7: cWrite = 'Y'; break;
+						case 8: cWrite = 'Z'; break;
+						case 9: cWrite = 's'; break;
+						case 10: cWrite = 't'; break;
+						case 11: cWrite = 'u'; break;
+						case 12: cWrite = 'v'; break;
+						case 13: cWrite = 'w'; break;
+						case 14: cWrite = 'x'; break;
+						case 15: cWrite = 'y'; break;
+						case 16: cWrite = 'z'; break;
 						default: iUnknown = 1; break;
 					}
 					break;
-				case 24: /*** balcony right ***/
+				case 24: /*** balcony/teleport right ***/
 					switch (iVariant)
 					{
 						case 0: cWrite = '_'; break;
+						case 1: cWrite = ','; break;
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -979,6 +1004,7 @@ void SavePuny (int iLevel)
 					switch (iVariant)
 					{
 						case 0: cWrite = '\''; break;
+						/*** 0x01-0x3F ***/
 						default: iUnknown = 1; break;
 					}
 					break;
@@ -1235,7 +1261,7 @@ void ShowListGames (void)
 
 	ShowImage (imgscreend, 0, 0, "imgscreend");
 
-	ShowText (1, "Choose game/mod:", 0xaa, 0xaa, 0xaa);
+	ShowText (1, "Choose game/mod:", 0xaa, 0xaa, 0xaa, 0);
 	for (iLoopGames = 1; iLoopGames <= iNrGames; iLoopGames++)
 	{
 		if (iLoopGames == iGameSel)
@@ -1253,7 +1279,7 @@ void ShowListGames (void)
 			if (cChar == '_') { cChar = ' '; }
 			snprintf (sGameName, MAX_PATHFILE, "%s%c", sGameTemp, cChar);
 		}
-		ShowText (iLoopGames + 2, sGameName, iR, iG, iB);
+		ShowText (iLoopGames + 2, sGameName, iR, iG, iB, 0);
 	}
 
 	/*** refresh screen ***/
@@ -1510,7 +1536,7 @@ void RunGame (void)
 	iRunJump = 0;
 	iCurLevel = iStartLevel;
 	iSteps = 0;
-	iShowSteps = 0;
+	iShowStepsCoins = 0;
 	LoadLevel (iCurLevel, START_LIVES);
 
 	while (iGame == 1)
@@ -1605,7 +1631,7 @@ void RunGame (void)
 							{
 								ToggleFullscreen();
 							} else {
-								iShowSteps = 1;
+								iShowStepsCoins = 1;
 							}
 							break;
 						case SDLK_F9:
@@ -1868,7 +1894,7 @@ void ShowGame (void)
 {
 	int iX, iY;
 	int iStartX, iStartY;
-	char sSteps[10 + 2];
+	char sSteps[10 + 2], sCoins[10 + 2];
 	int iSwordRoom, iSwordTile;
 	char cChar;
 
@@ -1941,12 +1967,10 @@ void ShowGame (void)
 	}
 
 	/*** Above room. ***/
-	if (iShowSteps == 1)
-		{ snprintf (sSteps, 10, "%i", iSteps); }
 	iY = iStartY + (-1 * (arHeight[iMode] * iZoom));
 	for (iLoopTile = 1; iLoopTile <= 10; iLoopTile++)
 	{
-		if (iShowSteps == 0)
+		if (iShowStepsCoins == 0)
 		{
 			iX = iStartX + (iLoopTile * (arWidth[iMode] * iZoom));
 			if (arLinksU[iCurRoom] != 0)
@@ -1956,23 +1980,8 @@ void ShowGame (void)
 				ShowTile ('#', iX, iY, 1);
 			}
 		} else {
-			iX = iStartX + ((iLoopTile - 1) * (arWidth[iMode] * iZoom));
-			switch (iLoopTile)
-			{
-				case 1:
-					ShowChar (4, 6, 0xaa, 0xaa, 0xaa, iX, iY, iMode, iZoom, 0);
-					break;
-				case 2:
-					ShowChar (11, 4, 0xaa, 0xaa, 0xaa, iX, iY, iMode, iZoom, 0);
-					break;
-				default:
-					if ((iLoopTile - 2) <= (int)strlen (sSteps))
-					{
-						ShowChar (sSteps[iLoopTile - 3] - 47,
-							4, 0xaa, 0xaa, 0xaa, iX, iY, iMode, iZoom, 0);
-					}
-					break;
-			}
+			snprintf (sSteps, 10, " S:%i", iSteps);
+			ShowText (1, sSteps, 0xaa, 0xaa, 0xaa, 1);
 		}
 	}
 
@@ -2040,16 +2049,22 @@ void ShowGame (void)
 	}
 
 	/*** Lives. ***/
-	for (iLoopLives = 1; iLoopLives <= iMaxLives; iLoopLives++)
+	if (iShowStepsCoins == 0)
 	{
 		iY = iStartY + (3 * (arHeight[iMode] * iZoom));
-		iX = iStartX + ((iLoopLives - 1) * (arWidth[iMode] * iZoom));
-		if (iCurLives >= iLoopLives)
+		for (iLoopLives = 1; iLoopLives <= iMaxLives; iLoopLives++)
 		{
-			ShowChar (1, 2, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
-		} else {
-			ShowChar (14, 3, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
+			iX = iStartX + ((iLoopLives - 1) * (arWidth[iMode] * iZoom));
+			if (iCurLives >= iLoopLives)
+			{
+				ShowChar (1, 2, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
+			} else {
+				ShowChar (14, 3, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
+			}
 		}
+	} else {
+		snprintf (sCoins, 10, " C:%i/%i", iPrinceCoins, iCoinsInLevel);
+		ShowText (5, sCoins, 0xaa, 0xaa, 0xaa, 1);
 	}
 
 	/*** Jump, careful, or runjump. ***/
@@ -2219,7 +2234,7 @@ void ShowTile (char cTile, int iX, int iY, int iFade)
 			break;
 		case '*': /*** Spikes (in). Harmless. ***/
 			iW = 16; iH = 6;
-			iR = 0xaa; iG = 0xaa; iB = 0xaa;
+			iR = 0xff; iG = 0xff; iB = 0xff;
 			break;
 		case '+': /*** Skeleton. ***/
 			iW = 6; iH = 13;
@@ -2336,7 +2351,7 @@ void ShowTile (char cTile, int iX, int iY, int iFade)
 			break;
 		case '^': /*** Spikes (out). Harmful. ***/
 			iW = 15; iH = 2;
-			iR = 0xaa; iG = 0xaa; iB = 0xaa;
+			iR = 0xff; iG = 0xff; iB = 0xff;
 			break;
 		case '_': /*** Floor (inc. balcony left/right, stuck button). ***/
 			iW = 16; iH = 6;
@@ -2675,6 +2690,8 @@ void TryGoLeft (int iTurns)
 			} else {
 				iCurRoom = iGoRoom;
 				iPrinceTile = iGoTile;
+				if ((iTurns == 6) && ((iLoopTurn == 1) || (iLoopTurn == 2)))
+					{ GameActions(); }
 			}
 		}
 	}
@@ -2706,7 +2723,10 @@ void TryGoRight (int iTurns)
 				{
 					iGoRoom = GetRoomRight();
 					iGoTile = GetTileRight();
-				} else { return; }
+				} else {
+					PlaySound ("wav/bump.wav");
+					return;
+				}
 				break;
 			case 6: /*** runjump ***/
 				if ((iLoopTurn == 1) || (iLoopTurn == 2))
@@ -2721,7 +2741,10 @@ void TryGoRight (int iTurns)
 					{
 						iGoRoom = GetRoomRight();
 						iGoTile = GetTileRight();
-					} else { return; }
+					} else {
+						PlaySound ("wav/bump.wav");
+						return;
+					}
 				}
 				break;
 		}
@@ -2730,6 +2753,8 @@ void TryGoRight (int iTurns)
 		{
 			iCurRoom = iGoRoom;
 			iPrinceTile = iGoTile;
+			if ((iTurns == 6) && ((iLoopTurn == 1) || (iLoopTurn == 2)))
+				{ GameActions(); }
 		}
 	}
 
@@ -2741,6 +2766,7 @@ void TryGoUp (void)
 {
 	char cLeft, cRight, cUp, cUpRight, cUpLeft;
 	int iRoom, iTile;
+	char cGoTo;
 
 	/*** Default, nothing changes. ***/
 	iGoRoom = iCurRoom;
@@ -2768,7 +2794,11 @@ void TryGoUp (void)
 		(arTiles[iCurRoom][iPrinceTile] <= 's')) ||
 		(arTiles[iCurRoom][iPrinceTile] == ','))
 	{
-		/*** Not yet implemented. ***/
+		if (arTiles[iCurRoom][iPrinceTile] == ',')
+			{ cGoTo = GetCharLeft(); }
+				else { cGoTo = arTiles[iCurRoom][iPrinceTile]; }
+		Teleport (cGoTo);
+		return;
 	}
 
 	if (IsEmpty (cUp) == 1)
@@ -2893,6 +2923,9 @@ void TryGoDown (void)
 			iFlashR = 0x00; iFlashG = 0xaa; iFlashB = 0x00;
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			break;
+		case '4': /*** Potion (flip). ***/
+			/*** Not yet implemented. ***/
+			break;
 		case '5': /*** Potion (hurt). ***/
 			PlaySound ("wav/drinking.wav");
 			SDL_Delay (500);
@@ -2902,6 +2935,9 @@ void TryGoDown (void)
 			iFlash+=25;
 			iFlashR = 0x00; iFlashG = 0x00; iFlashB = 0xaa;
 			arTiles[iCurRoom][iPrinceTile] = '_';
+			break;
+		case '6': /*** Potion (special blue). ***/
+			/*** Not yet implemented. ***/
 			break;
 	}
 
@@ -3616,6 +3652,7 @@ if ((iPrinceHang == 1) &&
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			iPrinceCoins++;
 			PlaySound ("wav/coin.wav");
+			iShowStepsCoins = 1;
 			break;
 		case '8': /*** Fake wall (floor that looks like a wall). ***/
 			arTiles[iCurRoom][iPrinceTile] = '_';
@@ -3839,7 +3876,7 @@ void ShowBossKey (void)
 {
 	ShowImage (imgscreend, 0, 0, "imgscreend");
 
-	ShowText (1, "C:\\>", 0xaa, 0xaa, 0xaa);
+	ShowText (1, "C:\\>", 0xaa, 0xaa, 0xaa, 0);
 	if ((SDL_GetTicks() / 500) % 2 == 0)
 	{
 		/*** _ ***/
@@ -4005,6 +4042,8 @@ void DropLoose (int iRoom, int iTile)
 				PushButton (cChar, 1);
 				arTiles[iRoomC][iTileC] = '-';
 			}
+			if (cChar == '_')
+				{ arTiles[iRoomC][iTileC] = '-'; }
 		}
 	} while (iCrashed == 0);
 	SDL_Delay (100);
@@ -4123,21 +4162,32 @@ void Initialize (void)
 	SDL_SetCursor (curArrow);
 }
 /*****************************************************************************/
-void ShowText (int iLine, char *sText, int iR, int iG, int iB)
+void ShowText (int iLine, char *sText, int iR, int iG, int iB, int iInGame)
 /*****************************************************************************/
 {
 	char cChar;
-	int iY, iW, iH;
+	int iStartX, iStartY;
+	int iX, iY, iW, iH;
 
 	/*** Used for looping. ***/
 	int iLoopChar;
 
-	if (iLine > 17)
+	if (((iInGame == 0) && (iLine > 17)) ||
+		((iInGame == 1) && (iLine > 5)))
 	{
 		printf ("[ WARN ] Trying to show text on line %i!\n", iLine);
 		return;
 	}
 
+	if (iInGame == 0)
+	{
+		iY = 8 + ((iLine - 1) * (arHeight[4] * 2));
+	} else {
+		iStartX = 102 + ((819 - (arWidth[iMode] * 11 * iZoom)) / 2);
+		iStartY = 8 + ((560 - (arHeight[iMode] * 3 * iZoom)) / 2);
+		/***/
+		iY = iStartY + ((iLine - 2) * (arHeight[iMode] * iZoom));
+	}
 	for (iLoopChar = 0; iLoopChar < (int)strlen (sText); iLoopChar++)
 	{
 		cChar = sText[iLoopChar];
@@ -4255,9 +4305,14 @@ void ShowText (int iLine, char *sText, int iR, int iG, int iB)
 				printf ("[FAILED] Unknown character '%c' in ShowText()!\n", cChar);
 				exit (EXIT_ERROR);
 		}
-		iY = 8 + ((iLine - 1) * (arHeight[4] * 2));
-		ShowChar (iW, iH, iR, iG, iB,
-			102 + (iLoopChar * (arWidth[4] * 2)), iY, 4, 2, 0);
+		if (iInGame == 0)
+		{
+			iX = 102 + (iLoopChar * (arWidth[4] * 2));
+			ShowChar (iW, iH, iR, iG, iB, iX, iY, 4, 2, 0);
+		} else {
+			iX = iStartX + ((iLoopChar - 1) * (arWidth[iMode] * iZoom));
+			ShowChar (iW, iH, iR, iG, iB, iX, iY, iMode, iZoom, 0);
+		}
 	}
 }
 /*****************************************************************************/
@@ -4271,7 +4326,7 @@ void MovingStarts (void)
 		case 2: iPrinceHang = 1; break;
 		default: iPrinceHang = 0; break;
 	}
-	iShowSteps = 0;
+	iShowStepsCoins = 0;
 	iNoMessage = 0;
 }
 /*****************************************************************************/
@@ -4322,5 +4377,31 @@ int GetY (int iTile)
 	}
 
 	return (iY);
+}
+/*****************************************************************************/
+void Teleport (char cGoTo)
+/*****************************************************************************/
+{
+	/*** Used for looping. ***/
+	int iLoopRoom;
+	int iLoopTile;
+
+	for (iLoopRoom = 1; iLoopRoom <= ROOMS; iLoopRoom++)
+	{
+		for (iLoopTile = 1; iLoopTile <= TILES; iLoopTile++)
+		{
+			if ((arTiles[iLoopRoom][iLoopTile] == cGoTo) &&
+				((iLoopRoom != iCurRoom) || (iLoopTile != iPrinceTile)) &&
+				((iLoopRoom != GetRoomLeft()) || (iLoopTile != GetTileLeft())))
+			{
+				iCurRoom = iLoopRoom;
+				iPrinceTile = iLoopTile;
+				PlaySound ("wav/mirror.wav");
+				return;
+			}
+		}
+	}
+
+	printf ("[ WARN ] No similar teleport ('%c') found.\n", cGoTo);
 }
 /*****************************************************************************/

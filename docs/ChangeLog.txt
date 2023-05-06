@@ -1,3 +1,9 @@
+v1.0 (May 6, 2023) - Norbert de Jonge
+--------------------
++ Implemented teleport tiles.
++ Pressing space, or getting a coin, also shows obtained coins.
+* Various fixes. Bump sound effect also to the right, spikes color (gray -> white), falling loose floors create rubble, GameActions() during runjump's run.
+
 v0.9 (January 26, 2023) - Norbert de Jonge
 --------------------
 + Initial release.

@@ -9,7 +9,7 @@
 
 ===[1 - ABOUT]=================================================================
 
-Puny Prince v0.9 (January 2023)
+Puny Prince v1.0 (May 2023)
 Copyright (C) 2023 Norbert de Jonge <nlmdejonge@gmail.com>
 
 A moddable, ASCII version of Prince of Persia.
