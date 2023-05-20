@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Makefile for Puny Prince 1.0 by Norbert de Jonge
+# Makefile for Puny Prince 1.1 by Norbert de Jonge
 #
 # cppcheck --language=c --std=c99 --verbose PunyPrince.c
 # Also try the line below with clang instead of gcc.

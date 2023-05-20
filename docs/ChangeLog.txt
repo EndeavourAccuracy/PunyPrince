@@ -1,3 +1,9 @@
+v1.1 (May 20, 2023) - Norbert de Jonge
+--------------------
++ Implemented signs and moving platforms.
++ Also implemented the special blue potion, untested.
+* Minor improvements.
+
 v1.0 (May 6, 2023) - Norbert de Jonge
 --------------------
 + Implemented teleport tiles.

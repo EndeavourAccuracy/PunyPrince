@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Puny Prince v1.0 (May 2023)
+/* Puny Prince v1.1 (May 2023)
  * Copyright (C) 2023 Norbert de Jonge <nlmdejonge@gmail.com>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -46,7 +46,7 @@
 #define EXIT_NORMAL 0
 #define EXIT_ERROR 1
 #define PROG_NAME "Puny Prince"
-#define PROG_VERSION "v1.0 (May 2023)"
+#define PROG_VERSION "v1.1 (May 2023)"
 #define COPYRIGHT "Copyright (C) 2023 Norbert de Jonge"
 #define ROOMS 24
 #define TILES 30
@@ -107,6 +107,7 @@ int iCurLives;
 int iLevLives; /*** Obtained during iCurLevel. ***/
 int iXPos, iYPos;
 char sMessage[MAX_MESSAGE + 2];
+char sSignPathFile[MAX_PATHFILE + 2];
 
 /*** DAT ***/
 unsigned char sChecksum[1 + 2];
@@ -141,6 +142,8 @@ int iGameSel;
 
 /*** For running games. ***/
 char arTiles[ROOMS + 2][TILES + 2];
+char arMobBck[ROOMS + 2][TILES + 2];
+int arMobDir[ROOMS + 2][TILES + 2]; /*** 1(5)=l, 2(6)=r, 3(7)=u, 4(8)=d ***/
 int arGateTimers[ROOMS + 2][TILES + 2];
 int arLettersRoom[(int)'r' + 2][10 + 2];
 int arLettersTile[(int)'r' + 2][10 + 2];
@@ -218,6 +221,7 @@ static const int arHeight[5] =
 
 SDL_Texture *imgscreend;
 SDL_Texture *imgscreeng;
+SDL_Texture *imgblack;
 SDL_Texture *imgchkb;
 SDL_Texture *imgfont[5 + 2];
 SDL_Texture *imgfade[5 + 2];
@@ -271,24 +275,24 @@ void TryGoDown (void);
 void ToggleJump (void);
 void ToggleCareful (void);
 void ToggleRunJump (void);
-char GetCharLeft (void);
-char GetCharRight (void);
-char GetCharUp (void);
-char GetCharDown (void);
-char GetCharUpLeft (void);
-char GetCharUpRight (void);
-int GetRoomLeft (void);
-int GetRoomRight (void);
-int GetRoomUp (void);
-int GetRoomDown (void);
-int GetRoomUpLeft (void);
-int GetRoomUpRight (void);
-int GetTileLeft (void);
-int GetTileRight (void);
-int GetTileUp (void);
-int GetTileDown (void);
-int GetTileUpLeft (void);
-int GetTileUpRight (void);
+char GetCharLeft (int iRoom, int iTile);
+char GetCharRight (int iRoom, int iTile);
+char GetCharUp (int iRoom, int iTile);
+char GetCharDown (int iRoom, int iTile);
+char GetCharUpLeft (int iRoom, int iTile);
+char GetCharUpRight (int iRoom, int iTile);
+int GetRoomLeft (int iRoom, int iTile);
+int GetRoomRight (int iRoom, int iTile);
+int GetRoomUp (int iRoom, int iTile);
+int GetRoomDown (int iRoom, int iTile);
+int GetRoomUpLeft (int iRoom, int iTile);
+int GetRoomUpRight (int iRoom, int iTile);
+int GetTileLeft (int iRoom, int iTile);
+int GetTileRight (int iRoom, int iTile);
+int GetTileUp (int iRoom, int iTile);
+int GetTileDown (int iRoom, int iTile);
+int GetTileUpLeft (int iRoom, int iTile);
+int GetTileUpRight (int iRoom, int iTile);
 int IsEmpty (char cChar);
 int IsFloor (char cChar);
 void GameActions (void);
@@ -309,6 +313,9 @@ void MovingEnds (void);
 int GetX (int iTile);
 int GetY (int iTile);
 void Teleport (char cGoTo);
+void DebugRoom (int iRoom);
+void ViewSign (int iLevel, int iRoom, int iTile);
+void ShowViewSign (SDL_Texture *imgsign, int iWarn);
 
 /*****************************************************************************/
 int main (int argc, char *argv[])
@@ -730,6 +737,9 @@ void SavePuny (int iLevel)
 						case 4: cWrite = '$'; break; /*** coin ***/
 						case 5: cWrite = '8'; break; /*** fake wall ***/
 						case 6: cWrite = '9'; break; /*** fake empty ***/
+						case 7: cWrite = '7'; break; /*** sign ***/
+						case 8: cWrite = '<'; break; /*** platform hor ***/
+						case 9: cWrite = '>'; break; /*** platform ver ***/
 						case 13: cWrite = '8'; break; /*** fake wall ***/
 						case 14: cWrite = '9'; break; /*** fake empty ***/
 						/*** 0x32, 0x33, 0x34, 0x35 ***/
@@ -1008,6 +1018,13 @@ void SavePuny (int iLevel)
 						default: iUnknown = 1; break;
 					}
 					break;
+				case 31: /*** null ***/
+					switch (iVariant)
+					{
+						case 0: cWrite = '&'; break;
+						default: iUnknown = 1; break;
+					}
+					break;
 				case 43: /*** stuck loose ***/
 					switch (iVariant)
 					{
@@ -1020,7 +1037,7 @@ void SavePuny (int iLevel)
 			}
 			if (iUnknown == 1)
 			{
-				if (iGroup != 31)
+				if (iLevel != 15)
 				{
 					printf ("[ WARN ] Level %i: unknown in room %i, tile %i (group %i,"
 						" variant %i).\n", iLevel, iLoopRoom, iLoopTile, iGroup, iVariant);
@@ -1047,7 +1064,7 @@ void SavePuny (int iLevel)
 		if ((iUp < 0) || (iUp > 24)) { iUp = 0; iFixed = 3; }
 		iDown = arRoomLinks[iLoopRoom][4];
 		if ((iDown < 0) || (iDown > 24)) { iDown = 0; iFixed = 4; }
-		if (iFixed != 0)
+		if ((iFixed != 0) && (iLevel != 15))
 		{
 			printf ("[ WARN ] Level %i: fixed link %i in room %i.\n",
 				iLevel, iFixed, iLoopRoom);
@@ -1260,6 +1277,7 @@ void ShowListGames (void)
 	int iLoopChar;
 
 	ShowImage (imgscreend, 0, 0, "imgscreend");
+	ShowImage (imgblack, 102, 8, "imgblack");
 
 	ShowText (1, "Choose game/mod:", 0xaa, 0xaa, 0xaa, 0);
 	for (iLoopGames = 1; iLoopGames <= iNrGames; iLoopGames++)
@@ -1302,6 +1320,7 @@ void LoadLevel (int iLevel, int iLives)
 	char sTile[10 + 2]; int iTile;
 	int iEventNr;
 	char sLink[10 + 2];
+	char cCharR1, cCharR2, cCharR3;
 
 	/*** Used for looping. ***/
 	int iLoopRoom;
@@ -1402,9 +1421,59 @@ void LoadLevel (int iLevel, int iLives)
 		read (iFdT, sRead, 2); /*** \n\n ***/
 		for (iLoopChar = 1; iLoopChar <= 10; iLoopChar++)
 		{
-			arTiles[iLoopRoom][iLoopChar] = sRow1[iLoopChar - 1];
-			arTiles[iLoopRoom][iLoopChar + 10] = sRow2[iLoopChar - 1];
-			arTiles[iLoopRoom][iLoopChar + 20] = sRow3[iLoopChar - 1];
+			cCharR1 = sRow1[iLoopChar - 1];
+			arTiles[iLoopRoom][iLoopChar] = cCharR1;
+			switch (cCharR1)
+			{
+				case '<':
+					arMobBck[iLoopRoom][iLoopChar] = '.';
+					arMobDir[iLoopRoom][iLoopChar] = 2;
+					break;
+				case '>':
+					arMobBck[iLoopRoom][iLoopChar] = '.';
+					arMobDir[iLoopRoom][iLoopChar] = 3;
+					break;
+				default:
+					arMobBck[iLoopRoom][iLoopChar] = ' ';
+					arMobDir[iLoopRoom][iLoopChar] = 0;
+					break;
+			}
+			/***/
+			cCharR2 = sRow2[iLoopChar - 1];
+			arTiles[iLoopRoom][iLoopChar + 10] = cCharR2;
+			switch (cCharR2)
+			{
+				case '<':
+					arMobBck[iLoopRoom][iLoopChar + 10] = '.';
+					arMobDir[iLoopRoom][iLoopChar + 10] = 2;
+					break;
+				case '>':
+					arMobBck[iLoopRoom][iLoopChar + 10] = '.';
+					arMobDir[iLoopRoom][iLoopChar + 10] = 3;
+					break;
+				default:
+					arMobBck[iLoopRoom][iLoopChar + 10] = ' ';
+					arMobDir[iLoopRoom][iLoopChar + 10] = 0;
+					break;
+			}
+			/***/
+			cCharR3 = sRow3[iLoopChar - 1];
+			arTiles[iLoopRoom][iLoopChar + 20] = cCharR3;
+			switch (cCharR3)
+			{
+				case '<':
+					arMobBck[iLoopRoom][iLoopChar + 20] = '.';
+					arMobDir[iLoopRoom][iLoopChar + 20] = 2;
+					break;
+				case '>':
+					arMobBck[iLoopRoom][iLoopChar + 20] = '.';
+					arMobDir[iLoopRoom][iLoopChar + 20] = 3;
+					break;
+				default:
+					arMobBck[iLoopRoom][iLoopChar + 20] = ' ';
+					arMobDir[iLoopRoom][iLoopChar + 20] = 0;
+					break;
+			}
 		}
 	}
 
@@ -1523,6 +1592,7 @@ void RunGame (void)
 	char cLeft, cRight;
 	int iModRoom, iModTile;
 	char cChar;
+	int iMobMove;
 
 	/*** Used for looping. ***/
 	int iLoopRoom;
@@ -1538,6 +1608,7 @@ void RunGame (void)
 	iSteps = 0;
 	iShowStepsCoins = 0;
 	LoadLevel (iCurLevel, START_LIVES);
+	iMobMove = 0;
 
 	while (iGame == 1)
 	{
@@ -1547,12 +1618,111 @@ void RunGame (void)
 		newticks = SDL_GetTicks();
 		if (newticks > oldticks + REFRESH_GAME)
 		{
+			iMobMove++; if (iMobMove > 3) { iMobMove = 0; }
 			if (iFlash > 0) { iFlash--; }
 			if (iPrinceFloat > 0) { iPrinceFloat--; }
 			for (iLoopRoom = 1; iLoopRoom <= ROOMS; iLoopRoom++)
 			{
 				for (iLoopTile = 1; iLoopTile <= TILES; iLoopTile++)
 				{
+					if (iMobMove == 3)
+					{
+						if (arTiles[iLoopRoom][iLoopTile] == '<') /*** platform hor ***/
+						{
+							if (arMobDir[iLoopRoom][iLoopTile] == 2) /*** right ***/
+							{
+								if ((GetCharRight (iLoopRoom, iLoopTile) == '.') ||
+									(GetCharRight (iLoopRoom, iLoopTile) == '`'))
+								{
+									arMobBck[GetRoomRight (iLoopRoom, iLoopTile)]
+										[GetTileRight (iLoopRoom, iLoopTile)] =
+										GetCharRight (iLoopRoom, iLoopTile);
+									arMobDir[GetRoomRight (iLoopRoom, iLoopTile)]
+										[GetTileRight (iLoopRoom, iLoopTile)] = 6;
+									arTiles[iLoopRoom][iLoopTile] =
+										arMobBck[iLoopRoom][iLoopTile];
+									arTiles[GetRoomRight (iLoopRoom, iLoopTile)]
+										[GetTileRight (iLoopRoom, iLoopTile)] = '<';
+									if ((iLoopRoom == iCurRoom) && (iLoopTile == iPrinceTile))
+									{
+										iCurRoom = GetRoomRight (iLoopRoom, iLoopTile);
+										iPrinceTile = GetTileRight (iLoopRoom, iLoopTile);
+									}
+								} else {
+									arMobDir[iLoopRoom][iLoopTile] = 5;
+								}
+							} else if (arMobDir[iLoopRoom][iLoopTile] == 1) { /*** left ***/
+								if ((GetCharLeft (iLoopRoom, iLoopTile) == '.') ||
+									(GetCharLeft (iLoopRoom, iLoopTile) == '`'))
+								{
+									arMobBck[GetRoomLeft (iLoopRoom, iLoopTile)]
+										[GetTileLeft (iLoopRoom, iLoopTile)] =
+										GetCharLeft (iLoopRoom, iLoopTile);
+									arMobDir[GetRoomLeft (iLoopRoom, iLoopTile)]
+										[GetTileLeft (iLoopRoom, iLoopTile)] = 5;
+									arTiles[iLoopRoom][iLoopTile] =
+										arMobBck[iLoopRoom][iLoopTile];
+									arTiles[GetRoomLeft (iLoopRoom, iLoopTile)]
+										[GetTileLeft (iLoopRoom, iLoopTile)] = '<';
+									if ((iLoopRoom == iCurRoom) && (iLoopTile == iPrinceTile))
+									{
+										iCurRoom = GetRoomLeft (iLoopRoom, iLoopTile);
+										iPrinceTile = GetTileLeft (iLoopRoom, iLoopTile);
+									}
+								} else {
+									arMobDir[iLoopRoom][iLoopTile] = 6;
+								}
+							}
+						}
+						if (arTiles[iLoopRoom][iLoopTile] == '>') /*** platform ver ***/
+						{
+							if (arMobDir[iLoopRoom][iLoopTile] == 3) /*** up ***/
+							{
+								if ((GetCharUp (iLoopRoom, iLoopTile) == '.') ||
+									(GetCharUp (iLoopRoom, iLoopTile) == '`'))
+								{
+									arMobBck[GetRoomUp (iLoopRoom, iLoopTile)]
+										[GetTileUp (iLoopRoom, iLoopTile)] =
+										GetCharUp (iLoopRoom, iLoopTile);
+									arMobDir[GetRoomUp (iLoopRoom, iLoopTile)]
+										[GetTileUp (iLoopRoom, iLoopTile)] = 7;
+									arTiles[iLoopRoom][iLoopTile] =
+										arMobBck[iLoopRoom][iLoopTile];
+									arTiles[GetRoomUp (iLoopRoom, iLoopTile)]
+										[GetTileUp (iLoopRoom, iLoopTile)] = '>';
+									if ((iLoopRoom == iCurRoom) && (iLoopTile == iPrinceTile))
+									{
+										iCurRoom = GetRoomUp (iLoopRoom, iLoopTile);
+										iPrinceTile = GetTileUp (iLoopRoom, iLoopTile);
+									}
+								} else {
+									arMobDir[iLoopRoom][iLoopTile] = 8;
+								}
+							} else if (arMobDir[iLoopRoom][iLoopTile] == 4) { /*** down ***/
+								if ((GetCharDown (iLoopRoom, iLoopTile) == '.') ||
+									(GetCharDown (iLoopRoom, iLoopTile) == '`'))
+								{
+									arMobBck[GetRoomDown (iLoopRoom, iLoopTile)]
+										[GetTileDown (iLoopRoom, iLoopTile)] =
+										GetCharDown (iLoopRoom, iLoopTile);
+									arMobDir[GetRoomDown (iLoopRoom, iLoopTile)]
+										[GetTileDown (iLoopRoom, iLoopTile)] = 8;
+									arTiles[iLoopRoom][iLoopTile] =
+										arMobBck[iLoopRoom][iLoopTile];
+									arTiles[GetRoomDown (iLoopRoom, iLoopTile)]
+										[GetTileDown (iLoopRoom, iLoopTile)] = '>';
+									if ((iLoopRoom == iCurRoom) && (iLoopTile == iPrinceTile))
+									{
+										iCurRoom = GetRoomDown (iLoopRoom, iLoopTile);
+										iPrinceTile = GetTileDown (iLoopRoom, iLoopTile);
+									}
+								} else {
+									arMobDir[iLoopRoom][iLoopTile] = 7;
+								}
+							}
+						}
+					}
+					/***/
 					if (arGateTimers[iLoopRoom][iLoopTile] > 0)
 					{
 						arGateTimers[iLoopRoom][iLoopTile]--;
@@ -1567,6 +1737,19 @@ void RunGame (void)
 								}
 							}
 						}
+					}
+				}
+			}
+			for (iLoopRoom = 1; iLoopRoom <= ROOMS; iLoopRoom++)
+			{
+				for (iLoopTile = 1; iLoopTile <= TILES; iLoopTile++)
+				{
+					switch (arMobDir[iLoopRoom][iLoopTile])
+					{
+						case 5: arMobDir[iLoopRoom][iLoopTile] = 1; break;
+						case 6: arMobDir[iLoopRoom][iLoopTile] = 2; break;
+						case 7: arMobDir[iLoopRoom][iLoopTile] = 3; break;
+						case 8: arMobDir[iLoopRoom][iLoopTile] = 4; break;
 					}
 				}
 			}
@@ -1647,18 +1830,22 @@ void RunGame (void)
 							} else if (iJump == 1) {
 								TryGoLeft (3);
 							} else if (iCareful == 1) {
-								cLeft = GetCharLeft();
+								cLeft = GetCharLeft (iCurRoom, iPrinceTile);
 								switch (cLeft)
 								{
 									case '~':
-										iModRoom = GetRoomLeft();
-										iModTile = GetTileLeft();
+										iModRoom = GetRoomLeft (iCurRoom, iPrinceTile);
+										iModTile = GetTileLeft (iCurRoom, iPrinceTile);
 										DropLoose (iModRoom, iModTile);
 										break;
 									case '.':
-										iPrinceHang = 1;
-										iPrinceSafe = 1; /*** In case of spikes below. ***/
-										TryGoLeft (1);
+										if ((arTiles[iCurRoom][iPrinceTile] != '<') &&
+											(arTiles[iCurRoom][iPrinceTile] != '>'))
+										{
+											iPrinceHang = 1;
+											iPrinceSafe = 1; /*** In case of spikes below. ***/
+											TryGoLeft (1);
+										}
 										break;
 									case '^':
 										iPrinceSafe = 1;
@@ -1680,18 +1867,22 @@ void RunGame (void)
 							} else if (iJump == 1) {
 								TryGoRight (3);
 							} else if (iCareful == 1) {
-								cRight = GetCharRight();
+								cRight = GetCharRight (iCurRoom, iPrinceTile);
 								switch (cRight)
 								{
 									case '~':
-										iModRoom = GetRoomRight();
-										iModTile = GetTileRight();
+										iModRoom = GetRoomRight (iCurRoom, iPrinceTile);
+										iModTile = GetTileRight (iCurRoom, iPrinceTile);
 										DropLoose (iModRoom, iModTile);
 										break;
 									case '.':
-										iPrinceHang = 1;
-										iPrinceSafe = 1; /*** In case of spikes below. ***/
-										TryGoRight (1);
+										if ((arTiles[iCurRoom][iPrinceTile] != '<') &&
+											(arTiles[iCurRoom][iPrinceTile] != '>'))
+										{
+											iPrinceHang = 1;
+											iPrinceSafe = 1; /*** In case of spikes below. ***/
+											TryGoRight (1);
+										}
 										break;
 									case '^':
 										iPrinceSafe = 1;
@@ -1742,7 +1933,7 @@ void RunGame (void)
 									{
 										PushButton (cChar, 0);
 									}
-									iFlash+=25;
+									iFlash = 10;
 									iFlashR = 0xff; iFlashG = 0xff; iFlashB = 0xff;
 								}
 							}
@@ -1789,8 +1980,16 @@ void RunGame (void)
 									{
 										iMaxLives++;
 										iCurLives = iMaxLives;
+										iFlash = 10;
+										iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 									}
 								}
+							}
+							break;
+						case SDLK_v:
+							if (arTiles[iCurRoom][iPrinceTile] == '7')
+							{
+								ViewSign (iCurLevel, iCurRoom, iPrinceTile);
 							}
 							break;
 						case SDLK_w:
@@ -1800,7 +1999,7 @@ void RunGame (void)
 								if (iCheat == 1)
 								{
 									iPrinceFloat+=50;
-									iFlash+=25;
+									iFlash = 10;
 									iFlashR = 0x00; iFlashG = 0xaa; iFlashB = 0x00;
 								}
 							}
@@ -1903,6 +2102,7 @@ void ShowGame (void)
 	int iLoopLives;
 
 	ShowImage (imgscreeng, 0, 0, "imgscreeng");
+	ShowImage (imgblack, 102, 8, "imgblack");
 
 	ExMarks();
 
@@ -1912,11 +2112,11 @@ void ShowGame (void)
 	/*** iSwordRoom & iSwordTile ***/
 	if (iPrinceDir == 1)
 	{
-		iSwordRoom = GetRoomLeft();
-		iSwordTile = GetTileLeft();
+		iSwordRoom = GetRoomLeft (iCurRoom, iPrinceTile);
+		iSwordTile = GetTileLeft (iCurRoom, iPrinceTile);
 	} else {
-		iSwordRoom = GetRoomRight();
-		iSwordTile = GetTileRight();
+		iSwordRoom = GetRoomRight (iCurRoom, iPrinceTile);
+		iSwordTile = GetTileRight (iCurRoom, iPrinceTile);
 	}
 
 	/*** Flash. ***/
@@ -2025,7 +2225,7 @@ void ShowGame (void)
 					{
 						PushButton (cChar, 0);
 					}
-					iFlash+=25;
+					iFlash = 10;
 					iFlashR = 0xff; iFlashG = 0xff; iFlashB = 0xff;
 				}
 			}
@@ -2051,15 +2251,20 @@ void ShowGame (void)
 	/*** Lives. ***/
 	if (iShowStepsCoins == 0)
 	{
-		iY = iStartY + (3 * (arHeight[iMode] * iZoom));
-		for (iLoopLives = 1; iLoopLives <= iMaxLives; iLoopLives++)
+		if (arTiles[iCurRoom][iPrinceTile] == '7')
 		{
-			iX = iStartX + ((iLoopLives - 1) * (arWidth[iMode] * iZoom));
-			if (iCurLives >= iLoopLives)
+			ShowText (5, " [V]iew sign", 0xaa, 0xaa, 0xaa, 1);
+		} else {
+			iY = iStartY + (3 * (arHeight[iMode] * iZoom));
+			for (iLoopLives = 1; iLoopLives <= iMaxLives; iLoopLives++)
 			{
-				ShowChar (1, 2, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
-			} else {
-				ShowChar (14, 3, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
+				iX = iStartX + ((iLoopLives - 1) * (arWidth[iMode] * iZoom));
+				if (iCurLives >= iLoopLives)
+				{
+					ShowChar (1, 2, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
+				} else {
+					ShowChar (14, 3, 0xaa, 0x00, 0x00, iX, iY, iMode, iZoom, 0);
+				}
 			}
 		}
 	} else {
@@ -2215,7 +2420,12 @@ void ShowTile (char cTile, int iX, int iY, int iFade)
 			iW = 14; iH = 14;
 			iR = 0xaa; iG = 0xaa; iB = 0xaa;
 			break;
-		case '&': /*** will never be used, available to modders ***/
+		case '&': /*** Custom Puny Prince tile. ***/
+			/* CUSTOM INFO
+			 * Modify iW (width) and iH (height) to change the ASCII character.
+			 * See docs/code_page_437.txt or png/8x16.png for an overview.
+			 * Modify iR, iG and iB to to change the RGB character color.
+			 */
 			iW = 16; iH = 4;
 			iR = 0x00; iG = 0x00; iB = 0x00;
 			break;
@@ -2284,9 +2494,9 @@ void ShowTile (char cTile, int iX, int iY, int iFade)
 			iW = 15; iH = 3;
 			iR = 0x00; iG = 0x00; iB = 0xaa;
 			break;
-		case '7': /*** reserved for future use ***/
-			iW = 16; iH = 4;
-			iR = 0x00; iG = 0x00; iB = 0x00;
+		case '7': /*** Sign. ***/
+			iW = 15; iH = 16;
+			iR = 0x55; iG = 0x55; iB = 0xff;
 			break;
 		case '8': /*** Fake wall (floor that looks like a wall). ***/
 			iW = 12; iH = 14;
@@ -2304,17 +2514,17 @@ void ShowTile (char cTile, int iX, int iY, int iFade)
 			iW = 6; iH = 16;
 			iR = 0x55; iG = 0x55; iB = 0x55;
 			break;
-		case '<': /*** reserved for future use ***/
-			iW = 16; iH = 4;
-			iR = 0x00; iG = 0x00; iB = 0x00;
+		case '<': /*** Moving platform (hor). ***/
+			iW = 16; iH = 6;
+			iR = 0xff; iG = 0x55; iB = 0xff;
 			break;
 		case '=': /*** Chomper (closed). ***/
 			iW = 9; iH = 14;
 			iR = 0xaa; iG = 0xaa; iB = 0xaa;
 			break;
-		case '>': /*** reserved for future use ***/
-			iW = 16; iH = 4;
-			iR = 0x00; iG = 0x00; iB = 0x00;
+		case '>': /*** Moving platform (ver). ***/
+			iW = 16; iH = 6;
+			iR = 0xff; iG = 0x55; iB = 0xff;
 			break;
 		case '?': /*** Converted to - and appears in-game as - empty. ***/
 			iW = 16; iH = 4;
@@ -2607,7 +2817,7 @@ void TryGoLeft (int iTurns)
 		iGoRoom = iCurRoom;
 		iGoTile = iPrinceTile;
 
-		cLeft = GetCharLeft();
+		cLeft = GetCharLeft (iCurRoom, iPrinceTile);
 
 		switch (iTurns)
 		{
@@ -2615,8 +2825,8 @@ void TryGoLeft (int iTurns)
 			case 3: /*** jump ***/
 				if ((IsEmpty (cLeft) == 1) || (IsFloor (cLeft) == 1))
 				{
-					iGoRoom = GetRoomLeft();
-					iGoTile = GetTileLeft();
+					iGoRoom = GetRoomLeft (iCurRoom, iPrinceTile);
+					iGoTile = GetTileLeft (iCurRoom, iPrinceTile);
 				} else {
 					PlaySound ("wav/bump.wav");
 					return;
@@ -2627,15 +2837,15 @@ void TryGoLeft (int iTurns)
 				{
 					if (IsFloor (cLeft) == 1)
 					{
-						iGoRoom = GetRoomLeft();
-						iGoTile = GetTileLeft();
+						iGoRoom = GetRoomLeft (iCurRoom, iPrinceTile);
+						iGoTile = GetTileLeft (iCurRoom, iPrinceTile);
 					} else { return; }
 				} else {
 					if ((IsEmpty (cLeft) == 1) || (IsFloor (cLeft) == 1) ||
 						(cLeft == '%'))
 					{
-						iGoRoom = GetRoomLeft();
-						iGoTile = GetTileLeft();
+						iGoRoom = GetRoomLeft (iCurRoom, iPrinceTile);
+						iGoTile = GetTileLeft (iCurRoom, iPrinceTile);
 						if (cLeft == '%')
 						{
 							iCurLives = 1;
@@ -2713,7 +2923,7 @@ void TryGoRight (int iTurns)
 		iGoRoom = iCurRoom;
 		iGoTile = iPrinceTile;
 
-		cRight = GetCharRight();
+		cRight = GetCharRight (iCurRoom, iPrinceTile);
 
 		switch (iTurns)
 		{
@@ -2721,8 +2931,8 @@ void TryGoRight (int iTurns)
 			case 3: /*** jump ***/
 				if ((IsEmpty (cRight) == 1) || (IsFloor (cRight) == 1))
 				{
-					iGoRoom = GetRoomRight();
-					iGoTile = GetTileRight();
+					iGoRoom = GetRoomRight (iCurRoom, iPrinceTile);
+					iGoTile = GetTileRight (iCurRoom, iPrinceTile);
 				} else {
 					PlaySound ("wav/bump.wav");
 					return;
@@ -2733,14 +2943,14 @@ void TryGoRight (int iTurns)
 				{
 					if (IsFloor (cRight) == 1)
 					{
-						iGoRoom = GetRoomRight();
-						iGoTile = GetTileRight();
+						iGoRoom = GetRoomRight (iCurRoom, iPrinceTile);
+						iGoTile = GetTileRight (iCurRoom, iPrinceTile);
 					} else { return; }
 				} else {
 					if ((IsEmpty (cRight) == 1) || (IsFloor (cRight) == 1))
 					{
-						iGoRoom = GetRoomRight();
-						iGoTile = GetTileRight();
+						iGoRoom = GetRoomRight (iCurRoom, iPrinceTile);
+						iGoTile = GetTileRight (iCurRoom, iPrinceTile);
 					} else {
 						PlaySound ("wav/bump.wav");
 						return;
@@ -2772,11 +2982,21 @@ void TryGoUp (void)
 	iGoRoom = iCurRoom;
 	iGoTile = iPrinceTile;
 
-	cLeft = GetCharLeft();
-	cRight = GetCharRight();
-	cUp = GetCharUp();
-	cUpRight = GetCharUpRight();
-	cUpLeft = GetCharUpLeft();
+	cLeft = GetCharLeft (iCurRoom, iPrinceTile);
+	cRight = GetCharRight (iCurRoom, iPrinceTile);
+	cUp = GetCharUp (iCurRoom, iPrinceTile);
+	cUpRight = GetCharUpRight (iCurRoom, iPrinceTile);
+	cUpLeft = GetCharUpLeft (iCurRoom, iPrinceTile);
+
+	/*** Custom Puny Prince tile. ***/
+	if (arTiles[iCurRoom][iPrinceTile] == '&')
+	{
+		/* CUSTOM INFO
+		 * Add code below if something should happen when the player presses
+		 * Arrow Up while on a custom tile.
+		 */
+		/*** return; ***/
+	}
 
 	/*** Level door left/right (open). ***/
 	if ((arTiles[iCurRoom][iPrinceTile] == '{') ||
@@ -2795,7 +3015,7 @@ void TryGoUp (void)
 		(arTiles[iCurRoom][iPrinceTile] == ','))
 	{
 		if (arTiles[iCurRoom][iPrinceTile] == ',')
-			{ cGoTo = GetCharLeft(); }
+			{ cGoTo = GetCharLeft (iCurRoom, iPrinceTile); }
 				else { cGoTo = arTiles[iCurRoom][iPrinceTile]; }
 		Teleport (cGoTo);
 		return;
@@ -2805,13 +3025,13 @@ void TryGoUp (void)
 	{
 		if ((iPrinceDir == 1) && (IsFloor (cUpLeft) == 1))
 		{
-			iGoRoom = GetRoomUpLeft();
-			iGoTile = GetTileUpLeft();
+			iGoRoom = GetRoomUpLeft (iCurRoom, iPrinceTile);
+			iGoTile = GetTileUpLeft (iCurRoom, iPrinceTile);
 		}
 		if ((iPrinceDir == 2) && (IsFloor (cUpRight) == 1))
 		{
-			iGoRoom = GetRoomUpRight();
-			iGoTile = GetTileUpRight();
+			iGoRoom = GetRoomUpRight (iCurRoom, iPrinceTile);
+			iGoTile = GetTileUpRight (iCurRoom, iPrinceTile);
 		}
 	}
 	if (IsFloor (cUp) == 1)
@@ -2821,8 +3041,8 @@ void TryGoUp (void)
 			((IsEmpty (cUpRight) == 1) &&
 			((IsEmpty (cRight) == 1) || (IsFloor (cRight) == 1))))
 		{
-			iGoRoom = GetRoomUp();
-			iGoTile = GetTileUp();
+			iGoRoom = GetRoomUp (iCurRoom, iPrinceTile);
+			iGoTile = GetTileUp (iCurRoom, iPrinceTile);
 		}
 	}
 
@@ -2836,20 +3056,20 @@ void TryGoUp (void)
 			DropLoose (arLinksU[iCurRoom], iPrinceTile + 20);
 		}
 	} else if ((iPrinceDir == 1) && (cUpLeft == '~')) {
-		iRoom = GetRoomUpLeft();
-		iTile = GetTileUpLeft();
+		iRoom = GetRoomUpLeft (iCurRoom, iPrinceTile);
+		iTile = GetTileUpLeft (iCurRoom, iPrinceTile);
 		DropLoose (iRoom, iTile);
 	} else if ((iPrinceDir == 2) && (cUpRight == '~')) {
-		iRoom = GetRoomUpRight();
-		iTile = GetTileUpRight();
+		iRoom = GetRoomUpRight (iCurRoom, iPrinceTile);
+		iTile = GetTileUpRight (iCurRoom, iPrinceTile);
 		DropLoose (iRoom, iTile);
 	} else if (cUpLeft == '~') {
-		iRoom = GetRoomUpLeft();
-		iTile = GetTileUpLeft();
+		iRoom = GetRoomUpLeft (iCurRoom, iPrinceTile);
+		iTile = GetTileUpLeft (iCurRoom, iPrinceTile);
 		DropLoose (iRoom, iTile);
 	} else if (cUpRight == '~') {
-		iRoom = GetRoomUpRight();
-		iTile = GetTileUpRight();
+		iRoom = GetRoomUpRight (iCurRoom, iPrinceTile);
+		iTile = GetTileUpRight (iCurRoom, iPrinceTile);
 		DropLoose (iRoom, iTile);
 	}
 
@@ -2864,21 +3084,22 @@ void TryGoDown (void)
 /*****************************************************************************/
 {
 	char cLeft, cRight, cDown;
+	char cTile;
 
 	/*** Default, nothing changes. ***/
 	iGoRoom = iCurRoom;
 	iGoTile = iPrinceTile;
 
-	cLeft = GetCharLeft();
-	cRight = GetCharRight();
-	cDown = GetCharDown();
+	cLeft = GetCharLeft (iCurRoom, iPrinceTile);
+	cRight = GetCharRight (iCurRoom, iPrinceTile);
+	cDown = GetCharDown (iCurRoom, iPrinceTile);
 
 	switch (arTiles[iCurRoom][iPrinceTile])
 	{
 		case '!': /*** Sword. ***/
 			iPrinceSword = 1;
-			iFlash+=25;
-			iFlashR = 0xaa; iFlashG = 0xaa; iFlashB = 0xaa;
+			iFlash = 10;
+			iFlashR = 0xff; iFlashG = 0xff; iFlashB = 0x55;
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			/*** Special events related. ***/
 			if ((iCurLevel == 12) && (iCurRoom == 15) && (iPrinceTile == 2))
@@ -2902,9 +3123,12 @@ void TryGoDown (void)
 			break;
 		case '1': /*** Potion (heal). ***/
 			PlaySound ("wav/drinking.wav");
-			if (iCurLives < iMaxLives) { iCurLives++; }
-			iFlash+=25;
-			iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
+			if (iCurLives < iMaxLives)
+			{
+				iCurLives++;
+				iFlash = 10;
+				iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
+			}
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			break;
 		case '2': /*** Potion (life). ***/
@@ -2912,14 +3136,14 @@ void TryGoDown (void)
 			iMaxLives++;
 			iCurLives = iMaxLives;
 			iLevLives++;
-			iFlash+=25;
+			iFlash = 10;
 			iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			break;
 		case '3': /*** Potion (float). ***/
 			PlaySound ("wav/drinking.wav");
 			iPrinceFloat+=50;
-			iFlash+=25;
+			iFlash = 10;
 			iFlashR = 0x00; iFlashG = 0xaa; iFlashB = 0x00;
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			break;
@@ -2932,12 +3156,37 @@ void TryGoDown (void)
 			PlaySound ("wav/hit_prince.wav");
 			iCurLives--;
 			if (iCurLives == 0) { Die(); return; }
-			iFlash+=25;
+			iFlash = 10;
 			iFlashR = 0x00; iFlashG = 0x00; iFlashB = 0xaa;
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			break;
 		case '6': /*** Potion (special blue). ***/
-			/*** Not yet implemented. ***/
+			PlaySound ("wav/drinking.wav");
+			cTile = arTiles[8][1];
+			switch (cTile)
+			{
+				case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
+				case 'G': case 'H': case 'I': case 'J': case 'K': case 'L':
+				case 'M': case 'N': case 'O': case 'P': case 'Q': case 'R':
+					/*** Raise buttons A - R (18). ***/
+					PushButton (cTile, 0);
+					break;
+				case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+				case 'g': case 'h': case 'i': case 'j': case 'k': case 'l':
+				case 'm': case 'n': case 'o': case 'p': case 'q': case 'r':
+					/*** Drop buttons a - r (18). ***/
+					PushButton (cTile, 0);
+					break;
+				case '*': arTiles[8][1] = '^'; break;
+				case ')': arTiles[8][1] = '"'; break;
+				case '~': DropLoose (8, 1); break;
+			}
+			break;
+		case '&': /*** Custom Puny Prince tile. ***/
+			/* CUSTOM INFO
+			 * Add code below if something should happen when the player presses
+			 * Arrow Down while on a custom tile.
+			 */
 			break;
 	}
 
@@ -2945,8 +3194,8 @@ void TryGoDown (void)
 	{
 		if ((IsEmpty (cLeft) == 1) || (IsEmpty (cRight) == 1))
 		{
-			iGoRoom = GetRoomDown();
-			iGoTile = GetTileDown();
+			iGoRoom = GetRoomDown (iCurRoom, iPrinceTile);
+			iGoTile = GetTileDown (iCurRoom, iPrinceTile);
 		}
 	}
 
@@ -2996,85 +3245,85 @@ void ToggleRunJump (void)
 	}
 }
 /*****************************************************************************/
-char GetCharLeft (void)
+char GetCharLeft (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if ((iPrinceTile != 1) && (iPrinceTile != 11) && (iPrinceTile != 21))
+	if ((iTile != 1) && (iTile != 11) && (iTile != 21))
 	{
-		return (arTiles[iCurRoom][iPrinceTile - 1]);
-	} else if (arLinksL[iCurRoom] != 0) {
-		return (arTiles[arLinksL[iCurRoom]][iPrinceTile + 9]);
+		return (arTiles[iRoom][iTile - 1]);
+	} else if (arLinksL[iRoom] != 0) {
+		return (arTiles[arLinksL[iRoom]][iTile + 9]);
 	} else {
 		return ('#');
 	}
 }
 /*****************************************************************************/
-char GetCharRight (void)
+char GetCharRight (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if ((iPrinceTile != 10) && (iPrinceTile != 20) && (iPrinceTile != 30))
+	if ((iTile != 10) && (iTile != 20) && (iTile != 30))
 	{
-		return (arTiles[iCurRoom][iPrinceTile + 1]);
-	} else if (arLinksR[iCurRoom] != 0) {
-		return (arTiles[arLinksR[iCurRoom]][iPrinceTile - 9]);
+		return (arTiles[iRoom][iTile + 1]);
+	} else if (arLinksR[iRoom] != 0) {
+		return (arTiles[arLinksR[iRoom]][iTile - 9]);
 	} else {
 		return ('#');
 	}
 }
 /*****************************************************************************/
-char GetCharUp (void)
+char GetCharUp (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (iPrinceTile > 10)
+	if (iTile > 10)
 	{
-		return (arTiles[iCurRoom][iPrinceTile - 10]);
-	} else if (arLinksU[iCurRoom] != 0) {
-		return (arTiles[arLinksU[iCurRoom]][iPrinceTile + 20]);
+		return (arTiles[iRoom][iTile - 10]);
+	} else if (arLinksU[iRoom] != 0) {
+		return (arTiles[arLinksU[iRoom]][iTile + 20]);
 	} else {
 		return ('#');
 	}
 }
 /*****************************************************************************/
-char GetCharDown (void)
+char GetCharDown (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (iPrinceTile <= 20)
+	if (iTile <= 20)
 	{
-		return (arTiles[iCurRoom][iPrinceTile + 10]);
-	} else if (arLinksD[iCurRoom] != 0) {
-		return (arTiles[arLinksD[iCurRoom]][iPrinceTile - 20]);
+		return (arTiles[iRoom][iTile + 10]);
+	} else if (arLinksD[iRoom] != 0) {
+		return (arTiles[arLinksD[iRoom]][iTile - 20]);
 	} else {
 		return ('#');
 	}
 }
 /*****************************************************************************/
-char GetCharUpLeft (void)
+char GetCharUpLeft (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (((iPrinceTile >= 12) && (iPrinceTile <= 20)) ||
-		((iPrinceTile >= 22) && (iPrinceTile <= 30)))
+	if (((iTile >= 12) && (iTile <= 20)) ||
+		((iTile >= 22) && (iTile <= 30)))
 	{
-		return (arTiles[iCurRoom][iPrinceTile - 11]);
-	} else if ((iPrinceTile == 11) || (iPrinceTile == 21)) {
-		if (arLinksL[iCurRoom] != 0)
+		return (arTiles[iRoom][iTile - 11]);
+	} else if ((iTile == 11) || (iTile == 21)) {
+		if (arLinksL[iRoom] != 0)
 		{
-			return (arTiles[arLinksL[iCurRoom]][iPrinceTile - 1]);
+			return (arTiles[arLinksL[iRoom]][iTile - 1]);
 		} else {
 			return ('#');
 		}
-	} else if ((iPrinceTile >= 2) && (iPrinceTile <= 10)) {
-		if (arLinksU[iCurRoom] != 0)
+	} else if ((iTile >= 2) && (iTile <= 10)) {
+		if (arLinksU[iRoom] != 0)
 		{
-			return (arTiles[arLinksU[iCurRoom]][iPrinceTile + 19]);
+			return (arTiles[arLinksU[iRoom]][iTile + 19]);
 		} else {
 			return ('#');
 		}
-	} else { /*** iPrinceTile == 1 ***/
-		if (arLinksL[iCurRoom] != 0)
+	} else { /*** iTile == 1 ***/
+		if (arLinksL[iRoom] != 0)
 		{
-			if (arLinksU[arLinksL[iCurRoom]] != 0)
+			if (arLinksU[arLinksL[iRoom]] != 0)
 			{
-				return (arTiles[arLinksU[arLinksL[iCurRoom]]][30]);
+				return (arTiles[arLinksU[arLinksL[iRoom]]][30]);
 			} else {
 				return ('#');
 			}
@@ -3084,33 +3333,33 @@ char GetCharUpLeft (void)
 	}
 }
 /*****************************************************************************/
-char GetCharUpRight (void)
+char GetCharUpRight (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (((iPrinceTile >= 11) && (iPrinceTile <= 19)) ||
-		((iPrinceTile >= 21) && (iPrinceTile <= 29)))
+	if (((iTile >= 11) && (iTile <= 19)) ||
+		((iTile >= 21) && (iTile <= 29)))
 	{
-		return (arTiles[iCurRoom][iPrinceTile - 9]);
-	} else if ((iPrinceTile == 20) || (iPrinceTile == 30)) {
-		if (arLinksR[iCurRoom] != 0)
+		return (arTiles[iRoom][iTile - 9]);
+	} else if ((iTile == 20) || (iTile == 30)) {
+		if (arLinksR[iRoom] != 0)
 		{
-			return (arTiles[arLinksR[iCurRoom]][iPrinceTile - 19]);
+			return (arTiles[arLinksR[iRoom]][iTile - 19]);
 		} else {
 			return ('#');
 		}
-	} else if ((iPrinceTile >= 1) && (iPrinceTile <= 9)) {
-		if (arLinksU[iCurRoom] != 0)
+	} else if ((iTile >= 1) && (iTile <= 9)) {
+		if (arLinksU[iRoom] != 0)
 		{
-			return (arTiles[arLinksU[iCurRoom]][iPrinceTile + 21]);
+			return (arTiles[arLinksU[iRoom]][iTile + 21]);
 		} else {
 			return ('#');
 		}
-	} else { /*** iPrinceTile == 10 ***/
-		if (arLinksR[iCurRoom] != 0)
+	} else { /*** iTile == 10 ***/
+		if (arLinksR[iRoom] != 0)
 		{
-			if (arLinksU[arLinksR[iCurRoom]] != 0)
+			if (arLinksU[arLinksR[iRoom]] != 0)
 			{
-				return (arTiles[arLinksU[arLinksR[iCurRoom]]][21]);
+				return (arTiles[arLinksU[arLinksR[iRoom]]][21]);
 			} else {
 				return ('#');
 			}
@@ -3120,85 +3369,85 @@ char GetCharUpRight (void)
 	}
 }
 /*****************************************************************************/
-int GetRoomLeft (void)
+int GetRoomLeft (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if ((iPrinceTile != 1) && (iPrinceTile != 11) && (iPrinceTile != 21))
+	if ((iTile != 1) && (iTile != 11) && (iTile != 21))
 	{
-		return (iCurRoom);
-	} else if (arLinksL[iCurRoom] != 0) {
-		return (arLinksL[iCurRoom]);
+		return (iRoom);
+	} else if (arLinksL[iRoom] != 0) {
+		return (arLinksL[iRoom]);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetRoomRight (void)
+int GetRoomRight (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if ((iPrinceTile != 10) && (iPrinceTile != 20) && (iPrinceTile != 30))
+	if ((iTile != 10) && (iTile != 20) && (iTile != 30))
 	{
-		return (iCurRoom);
-	} else if (arLinksR[iCurRoom] != 0) {
-		return (arLinksR[iCurRoom]);
+		return (iRoom);
+	} else if (arLinksR[iRoom] != 0) {
+		return (arLinksR[iRoom]);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetRoomUp (void)
+int GetRoomUp (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (iPrinceTile > 10)
+	if (iTile > 10)
 	{
-		return (iCurRoom);
-	} else if (arLinksU[iCurRoom] != 0) {
-		return (arLinksU[iCurRoom]);
+		return (iRoom);
+	} else if (arLinksU[iRoom] != 0) {
+		return (arLinksU[iRoom]);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetRoomDown (void)
+int GetRoomDown (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (iPrinceTile <= 20)
+	if (iTile <= 20)
 	{
-		return (iCurRoom);
-	} else if (arLinksD[iCurRoom] != 0) {
-		return (arLinksD[iCurRoom]);
+		return (iRoom);
+	} else if (arLinksD[iRoom] != 0) {
+		return (arLinksD[iRoom]);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetRoomUpLeft (void)
+int GetRoomUpLeft (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (((iPrinceTile >= 12) && (iPrinceTile <= 20)) ||
-		((iPrinceTile >= 22) && (iPrinceTile <= 30)))
+	if (((iTile >= 12) && (iTile <= 20)) ||
+		((iTile >= 22) && (iTile <= 30)))
 	{
-		return (iCurRoom);
-	} else if ((iPrinceTile == 11) || (iPrinceTile == 21)) {
-		if (arLinksL[iCurRoom] != 0)
+		return (iRoom);
+	} else if ((iTile == 11) || (iTile == 21)) {
+		if (arLinksL[iRoom] != 0)
 		{
-			return (arLinksL[iCurRoom]);
+			return (arLinksL[iRoom]);
 		} else {
 			return (0);
 		}
-	} else if ((iPrinceTile >= 2) && (iPrinceTile <= 10)) {
-		if (arLinksU[iCurRoom] != 0)
+	} else if ((iTile >= 2) && (iTile <= 10)) {
+		if (arLinksU[iRoom] != 0)
 		{
-			return (arLinksU[iCurRoom]);
+			return (arLinksU[iRoom]);
 		} else {
 			return (0);
 		}
-	} else { /*** iPrinceTile == 1 ***/
-		if (arLinksL[iCurRoom] != 0)
+	} else { /*** iTile == 1 ***/
+		if (arLinksL[iRoom] != 0)
 		{
-			if (arLinksU[arLinksL[iCurRoom]] != 0)
+			if (arLinksU[arLinksL[iRoom]] != 0)
 			{
-				return (arLinksU[arLinksL[iCurRoom]]);
+				return (arLinksU[arLinksL[iRoom]]);
 			} else {
 				return (0);
 			}
@@ -3208,33 +3457,33 @@ int GetRoomUpLeft (void)
 	}
 }
 /*****************************************************************************/
-int GetRoomUpRight (void)
+int GetRoomUpRight (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (((iPrinceTile >= 11) && (iPrinceTile <= 19)) ||
-		((iPrinceTile >= 21) && (iPrinceTile <= 29)))
+	if (((iTile >= 11) && (iTile <= 19)) ||
+		((iTile >= 21) && (iTile <= 29)))
 	{
-		return (iCurRoom);
-	} else if ((iPrinceTile == 20) || (iPrinceTile == 30)) {
-		if (arLinksR[iCurRoom] != 0)
+		return (iRoom);
+	} else if ((iTile == 20) || (iTile == 30)) {
+		if (arLinksR[iRoom] != 0)
 		{
-			return (arLinksR[iCurRoom]);
+			return (arLinksR[iRoom]);
 		} else {
 			return (0);
 		}
-	} else if ((iPrinceTile >= 1) && (iPrinceTile <= 9)) {
-		if (arLinksU[iCurRoom] != 0)
+	} else if ((iTile >= 1) && (iTile <= 9)) {
+		if (arLinksU[iRoom] != 0)
 		{
-			return (arLinksU[iCurRoom]);
+			return (arLinksU[iRoom]);
 		} else {
 			return (0);
 		}
-	} else { /*** iPrinceTile == 10 ***/
-		if (arLinksR[iCurRoom] != 0)
+	} else { /*** iTile == 10 ***/
+		if (arLinksR[iRoom] != 0)
 		{
-			if (arLinksU[arLinksR[iCurRoom]] != 0)
+			if (arLinksU[arLinksR[iRoom]] != 0)
 			{
-				return (arLinksU[arLinksR[iCurRoom]]);
+				return (arLinksU[arLinksR[iRoom]]);
 			} else {
 				return (0);
 			}
@@ -3244,83 +3493,83 @@ int GetRoomUpRight (void)
 	}
 }
 /*****************************************************************************/
-int GetTileLeft (void)
+int GetTileLeft (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if ((iPrinceTile != 1) && (iPrinceTile != 11) && (iPrinceTile != 21))
+	if ((iTile != 1) && (iTile != 11) && (iTile != 21))
 	{
-		return (iPrinceTile - 1);
-	} else if (arLinksL[iCurRoom] != 0) {
-		return (iPrinceTile + 9);
+		return (iTile - 1);
+	} else if (arLinksL[iRoom] != 0) {
+		return (iTile + 9);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetTileRight (void)
+int GetTileRight (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if ((iPrinceTile != 10) && (iPrinceTile != 20) && (iPrinceTile != 30))
+	if ((iTile != 10) && (iTile != 20) && (iTile != 30))
 	{
-		return (iPrinceTile + 1);
-	} else if (arLinksR[iCurRoom] != 0) {
-		return (iPrinceTile - 9);
+		return (iTile + 1);
+	} else if (arLinksR[iRoom] != 0) {
+		return (iTile - 9);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetTileUp (void)
+int GetTileUp (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (iPrinceTile > 10)
+	if (iTile > 10)
 	{
-		return (iPrinceTile - 10);
-	} else if (arLinksU[iCurRoom] != 0) {
-		return (iPrinceTile + 20);
+		return (iTile - 10);
+	} else if (arLinksU[iRoom] != 0) {
+		return (iTile + 20);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetTileDown (void)
+int GetTileDown (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (iPrinceTile <= 20)
+	if (iTile <= 20)
 	{
-		return (iPrinceTile + 10);
-	} else if (arLinksD[iCurRoom] != 0) {
-		return (iPrinceTile - 20);
+		return (iTile + 10);
+	} else if (arLinksD[iRoom] != 0) {
+		return (iTile - 20);
 	} else {
 		return (0);
 	}
 }
 /*****************************************************************************/
-int GetTileUpLeft (void)
+int GetTileUpLeft (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (((iPrinceTile >= 12) && (iPrinceTile <= 20)) ||
-		((iPrinceTile >= 22) && (iPrinceTile <= 30)))
+	if (((iTile >= 12) && (iTile <= 20)) ||
+		((iTile >= 22) && (iTile <= 30)))
 	{
-		return (iPrinceTile - 11);
-	} else if ((iPrinceTile == 11) || (iPrinceTile == 21)) {
-		if (arLinksL[iCurRoom] != 0)
+		return (iTile - 11);
+	} else if ((iTile == 11) || (iTile == 21)) {
+		if (arLinksL[iRoom] != 0)
 		{
-			return (iPrinceTile - 1);
+			return (iTile - 1);
 		} else {
 			return (0);
 		}
-	} else if ((iPrinceTile >= 2) && (iPrinceTile <= 10)) {
-		if (arLinksU[iCurRoom] != 0)
+	} else if ((iTile >= 2) && (iTile <= 10)) {
+		if (arLinksU[iRoom] != 0)
 		{
-			return (iPrinceTile + 19);
+			return (iTile + 19);
 		} else {
 			return (0);
 		}
-	} else { /*** iPrinceTile == 1 ***/
-		if (arLinksL[iCurRoom] != 0)
+	} else { /*** iTile == 1 ***/
+		if (arLinksL[iRoom] != 0)
 		{
-			if (arLinksU[arLinksL[iCurRoom]] != 0)
+			if (arLinksU[arLinksL[iRoom]] != 0)
 			{
 				return (30);
 			} else {
@@ -3332,31 +3581,31 @@ int GetTileUpLeft (void)
 	}
 }
 /*****************************************************************************/
-int GetTileUpRight (void)
+int GetTileUpRight (int iRoom, int iTile)
 /*****************************************************************************/
 {
-	if (((iPrinceTile >= 11) && (iPrinceTile <= 19)) ||
-		((iPrinceTile >= 21) && (iPrinceTile <= 29)))
+	if (((iTile >= 11) && (iTile <= 19)) ||
+		((iTile >= 21) && (iTile <= 29)))
 	{
-		return (iPrinceTile - 9);
-	} else if ((iPrinceTile == 20) || (iPrinceTile == 30)) {
-		if (arLinksR[iCurRoom] != 0)
+		return (iTile - 9);
+	} else if ((iTile == 20) || (iTile == 30)) {
+		if (arLinksR[iRoom] != 0)
 		{
-			return (iPrinceTile - 19);
+			return (iTile - 19);
 		} else {
 			return (0);
 		}
-	} else if ((iPrinceTile >= 1) && (iPrinceTile <= 9)) {
-		if (arLinksU[iCurRoom] != 0)
+	} else if ((iTile >= 1) && (iTile <= 9)) {
+		if (arLinksU[iRoom] != 0)
 		{
-			return (iPrinceTile + 21);
+			return (iTile + 21);
 		} else {
 			return (0);
 		}
-	} else { /*** iPrinceTile == 10 ***/
-		if (arLinksR[iCurRoom] != 0)
+	} else { /*** iTile == 10 ***/
+		if (arLinksR[iRoom] != 0)
 		{
-			if (arLinksU[arLinksR[iCurRoom]] != 0)
+			if (arLinksU[arLinksR[iRoom]] != 0)
 			{
 				return (21);
 			} else {
@@ -3422,10 +3671,10 @@ void GameActions (void)
 	/*** Used for looping. ***/
 	int iLoopTile;
 
-	iRoomLeft = GetRoomLeft();
-	iTileLeft = GetTileLeft();
-	iRoomRight = GetRoomRight();
-	iTileRight = GetTileRight();
+	iRoomLeft = GetRoomLeft (iCurRoom, iPrinceTile);
+	iTileLeft = GetTileLeft (iCurRoom, iPrinceTile);
+	iRoomRight = GetRoomRight (iCurRoom, iPrinceTile);
+	iTileRight = GetTileRight (iCurRoom, iPrinceTile);
 
 	/******************/
 	/* STEP 1: SPIKES */
@@ -3542,8 +3791,10 @@ void GameActions (void)
 				iCurLevel++;
 				LoadLevel (iCurLevel, iMaxLives);
 				return;
-			} else {
+			} else { /*** No room below, nor a special event. ***/
 				iCurLives = 0;
+				iFlash = 10;
+				iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			}
 		}
 		SDL_Delay (100);
@@ -3551,8 +3802,8 @@ void GameActions (void)
 		iDown++;
 		if ((iDown == 3) && (iPrinceFloat == 0)) { PlaySound ("wav/scream.wav"); }
 
-		cUpLeft = GetCharUpLeft();
-		cUpRight = GetCharUpRight();
+		cUpLeft = GetCharUpLeft (iCurRoom, iPrinceTile);
+		cUpRight = GetCharUpRight (iCurRoom, iPrinceTile);
 /***
 This cannot be used, because of e.g. level 7, room 14:
 if ((iPrinceHang == 1) &&
@@ -3561,7 +3812,8 @@ if ((iPrinceHang == 1) &&
 ***/
 		if ((iPrinceHang == 1) &&
 			(IsFloor (arTiles[iCurRoom][iPrinceTile]) != 1) &&
-			((IsFloor (cUpLeft) == 1) || (IsFloor (cUpRight) == 1)))
+			(((IsFloor (cUpLeft) == 1) && (cUpLeft != '>') && (cUpLeft != '<')) ||
+			((IsFloor (cUpRight) == 1) && (cUpRight != '>') && (cUpRight != '<'))))
 		{
 			/*** Turn around if necessary. ***/
 			switch (iPrinceDir)
@@ -3600,6 +3852,8 @@ if ((iPrinceHang == 1) &&
 					} else {
 						PlaySound ("wav/landing_dead.wav");
 					}
+					iFlash = 10;
+					iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 				} else {
 					PlaySound ("wav/landing_soft.wav");
 				}
@@ -3610,6 +3864,8 @@ if ((iPrinceHang == 1) &&
 			{
 				iCurLives = 0;
 				PlaySound ("wav/landing_dead.wav");
+				iFlash = 10;
+				iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			} else {
 				PlaySound ("wav/landing_soft.wav");
 			}
@@ -3627,6 +3883,8 @@ if ((iPrinceHang == 1) &&
 			{
 				PlaySound ("wav/spikes_death_b.wav");
 				iCurLives = 0;
+				iFlash = 10;
+				iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			}
 			break;
 		case '~': /*** Loose floor (inc. stuck). ***/
@@ -3647,18 +3905,28 @@ if ((iPrinceHang == 1) &&
 		case '=': /*** Chomper (closed). ***/
 			PlaySound ("wav/chomper_death.wav");
 			iCurLives = 0;
+			iFlash = 10;
+			iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			break;
 		case '$': /*** Coin on floor. ***/
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			iPrinceCoins++;
 			PlaySound ("wav/coin.wav");
 			iShowStepsCoins = 1;
+			iFlash = 10;
+			iFlashR = 0xff; iFlashG = 0xff; iFlashB = 0x55;
 			break;
 		case '8': /*** Fake wall (floor that looks like a wall). ***/
 			arTiles[iCurRoom][iPrinceTile] = '_';
 			break;
 		case '9': /*** Fake empty (floor that looks empty). ***/
 			arTiles[iCurRoom][iPrinceTile] = '_';
+			break;
+		case '&': /*** Custom Puny Prince tile. ***/
+			/* CUSTOM INFO
+			 * Add code below if something should happen when the player steps
+			 * on a custom tile.
+			 */
 			break;
 	}
 
@@ -3670,6 +3938,8 @@ if ((iPrinceHang == 1) &&
 	{
 		iCurLives = 0;
 		PlaySound ("wav/hit_prince.wav");
+		iFlash = 10;
+		iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 	}
 	if ((arGuardLoc[iRoomRight] == iTileRight) &&
 		(arGuardHP[iRoomRight] != 0))
@@ -3690,6 +3960,8 @@ if ((iPrinceHang == 1) &&
 				iCurLives--;
 				PlaySound ("wav/hit_prince.wav");
 				arGuardAttack[iRoomRight] = 1;
+				iFlash = 10;
+				iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			}
 		}
 	}
@@ -3711,6 +3983,8 @@ if ((iPrinceHang == 1) &&
 				iCurLives--;
 				PlaySound ("wav/hit_prince.wav");
 				arGuardAttack[iRoomLeft] = 1;
+				iFlash = 10;
+				iFlashR = 0xaa; iFlashG = 0x00; iFlashB = 0x00;
 			}
 		}
 	}
@@ -3875,6 +4149,7 @@ void ShowBossKey (void)
 /*****************************************************************************/
 {
 	ShowImage (imgscreend, 0, 0, "imgscreend");
+	ShowImage (imgblack, 102, 8, "imgblack");
 
 	ShowText (1, "C:\\>", 0xaa, 0xaa, 0xaa, 0);
 	if ((SDL_GetTicks() / 500) % 2 == 0)
@@ -4143,6 +4418,7 @@ void Initialize (void)
 	SDL_SetCursor (curWait);
 	PreLoad ("screen_d.png", &imgscreend);
 	PreLoad ("screen_g.png", &imgscreeng);
+	PreLoad ("black.png", &imgblack);
 	PreLoad ("chk_black.png", &imgchkb);
 	PreLoad ("8x8.png", &imgfont[0]);
 	PreLoad ("8x8f.png", &imgfade[0]);
@@ -4392,7 +4668,8 @@ void Teleport (char cGoTo)
 		{
 			if ((arTiles[iLoopRoom][iLoopTile] == cGoTo) &&
 				((iLoopRoom != iCurRoom) || (iLoopTile != iPrinceTile)) &&
-				((iLoopRoom != GetRoomLeft()) || (iLoopTile != GetTileLeft())))
+				((iLoopRoom != GetRoomLeft (iCurRoom, iPrinceTile)) ||
+				(iLoopTile != GetTileLeft (iCurRoom, iPrinceTile))))
 			{
 				iCurRoom = iLoopRoom;
 				iPrinceTile = iLoopTile;
@@ -4403,5 +4680,157 @@ void Teleport (char cGoTo)
 	}
 
 	printf ("[ WARN ] No similar teleport ('%c') found.\n", cGoTo);
+}
+/*****************************************************************************/
+void DebugRoom (int iRoom)
+/*****************************************************************************/
+{
+	/*** Currently unused. ***/
+
+	printf ("--------------------------------\n");
+	printf ("%c%c%c%c%c%c%c%c%c%c %c%c%c%c%c%c%c%c%c%c %i%i%i%i%i%i%i%i%i%i\n",
+		arTiles[iRoom][1], arTiles[iRoom][2], arTiles[iRoom][3],
+		arTiles[iRoom][4], arTiles[iRoom][5], arTiles[iRoom][6],
+		arTiles[iRoom][7], arTiles[iRoom][8], arTiles[iRoom][9],
+		arTiles[iRoom][10], arMobBck[iRoom][1], arMobBck[iRoom][2],
+		arMobBck[iRoom][3], arMobBck[iRoom][4], arMobBck[iRoom][5],
+		arMobBck[iRoom][6], arMobBck[iRoom][7], arMobBck[iRoom][8],
+		arMobBck[iRoom][9], arMobBck[iRoom][10], arMobDir[iRoom][1],
+		arMobDir[iRoom][2], arMobDir[iRoom][3], arMobDir[iRoom][4],
+		arMobDir[iRoom][5], arMobDir[iRoom][6], arMobDir[iRoom][7],
+		arMobDir[iRoom][8], arMobDir[iRoom][9], arMobDir[iRoom][10]);
+	printf ("%c%c%c%c%c%c%c%c%c%c %c%c%c%c%c%c%c%c%c%c %i%i%i%i%i%i%i%i%i%i\n",
+		arTiles[iRoom][11], arTiles[iRoom][12], arTiles[iRoom][13],
+		arTiles[iRoom][14], arTiles[iRoom][15], arTiles[iRoom][16],
+		arTiles[iRoom][17], arTiles[iRoom][18], arTiles[iRoom][19],
+		arTiles[iRoom][20], arMobBck[iRoom][11], arMobBck[iRoom][12],
+		arMobBck[iRoom][13], arMobBck[iRoom][14], arMobBck[iRoom][15],
+		arMobBck[iRoom][16], arMobBck[iRoom][17], arMobBck[iRoom][18],
+		arMobBck[iRoom][19], arMobBck[iRoom][20], arMobDir[iRoom][11],
+		arMobDir[iRoom][12], arMobDir[iRoom][13], arMobDir[iRoom][14],
+		arMobDir[iRoom][15], arMobDir[iRoom][16], arMobDir[iRoom][17],
+		arMobDir[iRoom][18], arMobDir[iRoom][19], arMobDir[iRoom][20]);
+	printf ("%c%c%c%c%c%c%c%c%c%c %c%c%c%c%c%c%c%c%c%c %i%i%i%i%i%i%i%i%i%i\n",
+		arTiles[iRoom][21], arTiles[iRoom][22], arTiles[iRoom][23],
+		arTiles[iRoom][24], arTiles[iRoom][25], arTiles[iRoom][26],
+		arTiles[iRoom][27], arTiles[iRoom][28], arTiles[iRoom][29],
+		arTiles[iRoom][30], arMobBck[iRoom][21], arMobBck[iRoom][22],
+		arMobBck[iRoom][23], arMobBck[iRoom][24], arMobBck[iRoom][25],
+		arMobBck[iRoom][26], arMobBck[iRoom][27], arMobBck[iRoom][28],
+		arMobBck[iRoom][29], arMobBck[iRoom][30], arMobDir[iRoom][21],
+		arMobDir[iRoom][22], arMobDir[iRoom][23], arMobDir[iRoom][24],
+		arMobDir[iRoom][25], arMobDir[iRoom][26], arMobDir[iRoom][27],
+		arMobDir[iRoom][28], arMobDir[iRoom][29], arMobDir[iRoom][30]);
+	printf ("--------------------------------\n");
+}
+/*****************************************************************************/
+void ViewSign (int iLevel, int iRoom, int iTile)
+/*****************************************************************************/
+{
+	int iWarn;
+	SDL_Texture *imgsign;
+	int iWidth, iHeight;
+	/***/
+	int iOldMode, iOldZoom;
+	int iViewSign;
+	SDL_Event event;
+
+	snprintf (sSignPathFile, MAX_PATHFILE, "%s%s%s%ssign_%i_%i_%i.png",
+		DIR_GAMES, SLASH, arGames[iGameSel], SLASH, iLevel, iRoom, iTile);
+	iWarn = 0; imgsign = NULL;
+	if (access (sSignPathFile, R_OK) == -1)
+	{
+		iWarn = 1;
+	} else {
+		imgsign = IMG_LoadTexture (ascreen, sSignPathFile);
+		if (imgsign == NULL)
+		{
+			iWarn = 2;
+		} else {
+			SDL_QueryTexture (imgsign, NULL, NULL, &iWidth, &iHeight);
+			if ((iWidth != 819) || (iHeight != 560))
+			{
+				iWarn = 3;
+				SDL_DestroyTexture (imgsign);
+			}
+		}
+	}
+
+	/*** Make sure transparent PNG visuals are the same for all players. ***/
+	iOldMode = iMode;
+	iMode = 2;
+	iOldZoom = iZoom;
+	iZoom = 7;
+	ShowGame();
+	SDL_Delay (100); /*** TODO: No idea why this is necessary... ***/
+
+	iViewSign = 1;
+
+	ShowViewSign (imgsign, iWarn);
+	while (iViewSign == 1)
+	{
+		while (SDL_PollEvent (&event))
+		{
+			switch (event.type)
+			{
+				case SDL_KEYDOWN:
+					switch (event.key.keysym.sym)
+					{
+						case SDLK_ESCAPE:
+						case SDLK_KP_ENTER:
+						case SDLK_RETURN:
+						case SDLK_SPACE:
+						case SDLK_q:
+						case SDLK_v:
+							iViewSign = 0;
+							break;
+					}
+					break;
+				case SDL_WINDOWEVENT:
+					if (event.window.event == SDL_WINDOWEVENT_EXPOSED)
+						{ ShowGame(); ShowViewSign (imgsign, iWarn); } break;
+				case SDL_QUIT:
+					Quit(); break;
+			}
+		}
+
+		PreventCPUEating();
+	}
+
+	iMode = iOldMode;
+	iZoom = iOldZoom;
+
+	if (iWarn == 0)
+	{
+		SDL_DestroyTexture (imgsign);
+	}
+
+	ShowGame();
+}
+/*****************************************************************************/
+void ShowViewSign (SDL_Texture *imgsign, int iWarn)
+/*****************************************************************************/
+{
+	ShowImage (imgscreend, 0, 0, "imgscreend");
+
+	if (iWarn == 0)
+	{
+		ShowImage (imgsign, 102, 8, "imgsign");
+	} else {
+		ShowImage (imgblack, 102, 8, "imgblack");
+		switch (iWarn)
+		{
+			case 1: ShowText (1, "Sign image not found:",
+				0xaa, 0xaa, 0xaa, 0); break;
+			case 2: ShowText (1, "Could not load sign texture:",
+				0xaa, 0xaa, 0xaa, 0); break;
+			case 3: ShowText (1, "Sign image not 819 x 560 pixels:",
+				0xaa, 0xaa, 0xaa, 0); break;
+		}
+		ShowText (2, sSignPathFile, 0xaa, 0xaa, 0xaa, 0);
+	}
+
+	/*** refresh screen ***/
+	SDL_RenderPresent (ascreen);
 }
 /*****************************************************************************/

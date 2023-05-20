@@ -9,7 +9,7 @@
 
 ===[1 - ABOUT]=================================================================
 
-Puny Prince v1.0 (May 2023)
+Puny Prince v1.1 (May 2023)
 Copyright (C) 2023 Norbert de Jonge <nlmdejonge@gmail.com>
 
 A moddable, ASCII version of Prince of Persia.
@@ -38,7 +38,7 @@ The Bitstream Vera font by Jim Lyles is © Bitstream, Inc.
 
 Playing instructions are displayed in-game, on the right.
 Command-line options are displayed with --help.
-For level files information, see docs/2023-01-26_Puny_Prince_Level_Files.pdf.
+For level files information, see docs/2023-05-20_Puny_Prince_Level_Files.pdf.
 
 ===[4 - FEEDBACK]==============================================================
 
